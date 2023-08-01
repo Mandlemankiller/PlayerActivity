@@ -1,0 +1,4 @@
+name: PlayerActivity
+version: '${project.version}'
+main: cz.jeme.programu.playeractivity.PlayerActivity
+api-version: '1.19'

@@ -65,7 +65,7 @@ public final class Database {
 
         closeConnection(connection);
         connection = openConnection();
-        createTables();
+        createTables(tablePrefix);
 
         List<Session> openSessions = getAllOpenSessions().stream()
                 .filter(session -> !removedSessions.contains(session))
@@ -130,7 +130,7 @@ public final class Database {
         }
     }
 
-    private void createTables() {
+    private void createTables(String tablePrefix) {
         String namesStatementStr = "CREATE TABLE IF NOT EXISTS " + namesTableNamePrefixed + " ("
                 + "id INT AUTO_INCREMENT PRIMARY KEY, "
                 + "uuid UUID UNIQUE NOT NULL, "
@@ -142,7 +142,7 @@ public final class Database {
                 + "start_time DATETIME NOT NULL, "
                 + "end_time DATETIME, "
                 + "play_time INT, "
-                + "CONSTRAINT fk_player_uuid "
+                + "CONSTRAINT fk_" + tablePrefix + "player_uuid "
                 + "FOREIGN KEY (player_uuid) REFERENCES " + namesTableNamePrefixed + " (uuid)"
                 + ");";
 

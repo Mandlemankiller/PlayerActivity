@@ -5,6 +5,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 
 public final class Messages {
     private Messages() {
+        // Static class cannot be initialized
     }
     public static final MiniMessage MESSAGE = MiniMessage.miniMessage();
     public static final String PREFIX = "<dark_gray>[<gold>PlayerActivity</gold>]</dark_gray> ";

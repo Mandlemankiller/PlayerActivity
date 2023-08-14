@@ -1,35 +1,45 @@
 package cz.jeme.programu.playeractivity;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.UUID;
 
 public class Session {
-    public static final SimpleDateFormat DATE_FORMATTER = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     public UUID uuid;
-    public Date startStamp;
-    public Date endStamp = null;
+    public Date startDate;
+    public Date endDate = null;
+    public Integer playTime = null;
 
-    public Session(UUID uuid, Date startStamp) {
+    public Session(UUID uuid, Date startDate) {
         this.uuid = uuid;
-        this.startStamp = startStamp;
+        this.startDate = startDate;
     }
+
     public Session(UUID uuid) {
         this(uuid, new Date());
     }
-    public Session(UUID uuid, String startStamp) throws ParseException {
-        this(uuid, parseDate(startStamp));
+
+    public void close(Date endDate) {
+        this.endDate = endDate;
+        playTime = (int) (endDate.getTime() - startDate.getTime()) / 1000;
     }
 
-    public void end() {
-        endStamp = new Date();
-//        playTime = (endStamp.getTime() - startStamp.getTime()) / 1000;
-    }
-    public static String formatDate(Date date) {
-        return DATE_FORMATTER.format(date);
-    }
-    public static Date parseDate(String date) throws ParseException {
-        return DATE_FORMATTER.parse(date);
+    public static String translatePlayTime(int playTime) {
+        long hours = playTime / 3600;
+        long minutes = (playTime - hours * 3600) / 60;
+        long seconds = playTime - hours * 3600 - minutes * 60;
+
+        String hoursStr = "";
+        String minutesStr = "";
+        String secondsStr = "";
+        if (hours > 0) {
+            hoursStr = hours + "hrs ";
+        }
+        if (minutes > 0) {
+            minutesStr = minutes + "min ";
+        }
+        if (seconds > 0) {
+            secondsStr = seconds + "sec";
+        }
+        return hoursStr + minutesStr + secondsStr;
     }
 }

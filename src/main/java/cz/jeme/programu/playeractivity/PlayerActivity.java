@@ -1,48 +1,81 @@
 package cz.jeme.programu.playeractivity;
 
 import org.bukkit.Bukkit;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.sql.SQLException;
-import java.text.ParseException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.logging.Level;
 
 public class PlayerActivity extends JavaPlugin {
-    private Database database;
+    public static FileConfiguration config;
+    private Database database = null;
+    private RecoveryTimestampRunnable recoveryRunnable;
+
+    private boolean configured;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
 
-        try {
-            database = new Database(getDataFolder());
-        } catch (ClassNotFoundException | SQLException e) {
-            serverLog(Level.SEVERE, "Couldn't establish connection with database!");
-            e.printStackTrace();
+        recoveryRunnable = new RecoveryTimestampRunnable(getDataFolder());
+
+        reload();
+
+        String user = config.getString("mariadb.user");
+        String databaseName = config.getString("mariadb.database-name");
+
+        configured = user != null && !user.equals("<user_name>") || databaseName != null && !databaseName.equals("<database_name>");
+
+        if (!configured) {
+            serverLog(Level.WARNING, "The plugin config has not yet been set!");
+            serverLog(Level.WARNING, "Please configure the plugin and restart your server");
+            serverLog(Level.WARNING, "The plugin will now be disabled");
+            return;
         }
+
+        database = new Database(recoveryRunnable);
+
+        recoveryRunnable.start();
+
+        new PlayerActivityCommand(this);
 
         PluginManager pluginManager = Bukkit.getPluginManager();
         pluginManager.registerEvents(new EventListener(database), this);
     }
 
-    @Override
-    public void onDisable() {
-        try {
-            serverLog(Level.INFO, "Closing all sessions...");
-            database.closeAllSessions();
-            serverLog(Level.INFO, "Closing connection with database...");
-            database.closeConnection();
-        } catch (SQLException | ParseException e) {
-            serverLog(Level.SEVERE, "Couldn't close sessions and close connection with database!");
-            e.printStackTrace();
-        }
+    public void reload() {
+        reloadConfig();
+        config = getConfig();
+        if (database != null) database.reload();
     }
 
-    public static void serverLog(Level lvl, String msg) {
-        if (msg == null) {
+    @Override
+    public void onDisable() {
+        if (!configured) return;
+        database.closeAllSessions();
+        database.closeConnection(database.connection);
+        recoveryRunnable.cancel();
+    }
+
+    public static void serverLog(Level level, String message) {
+        if (message == null) {
             throw new NullPointerException("Message is null!");
         }
-        Bukkit.getServer().getLogger().log(lvl, Messages.strip(Messages.PREFIX) + msg);
+        Bukkit.getLogger().log(level, Messages.strip(Messages.PREFIX) + message);
+    }
+
+    public static void serverLog(Level level, String message, Exception exception) {
+        StringWriter stringWriter = new StringWriter();
+        PrintWriter printWriter = new PrintWriter(stringWriter);
+        exception.printStackTrace(printWriter);
+        String stackTraceStr = stringWriter.toString();
+        serverLog(level, message + "\n" + stackTraceStr);
+    }
+
+    public static void serverLog(String message, Exception exception) {
+        serverLog(Level.SEVERE, message, exception);
     }
 }

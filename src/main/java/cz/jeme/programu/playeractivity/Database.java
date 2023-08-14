@@ -134,7 +134,7 @@ public final class Database {
     private void createTable() {
         String statementStr = "CREATE TABLE IF NOT EXISTS " + tableNamePrefixed + " ("
                 + "id INT AUTO_INCREMENT PRIMARY KEY, "
-                + "uuid CHAR(36) NOT NULL, "
+                + "uuid UUID NOT NULL, "
                 + "start_stamp DATETIME NOT NULL, "
                 + "end_stamp DATETIME, "
                 + "play_time INT"

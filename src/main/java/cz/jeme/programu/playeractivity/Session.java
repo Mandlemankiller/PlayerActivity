@@ -4,18 +4,18 @@ import java.util.Date;
 import java.util.UUID;
 
 public class Session {
-    public UUID uuid;
-    public Date startDate;
+    public final UUID playerUuid;
+    public final Date startDate;
     public Date endDate = null;
     public Integer playTime = null;
 
-    public Session(UUID uuid, Date startDate) {
-        this.uuid = uuid;
+    public Session(UUID playerUuid, Date startDate) {
+        this.playerUuid = playerUuid;
         this.startDate = startDate;
     }
 
-    public Session(UUID uuid) {
-        this(uuid, new Date());
+    public Session(UUID playerUuid) {
+        this(playerUuid, new Date());
     }
 
     public void close(Date endDate) {

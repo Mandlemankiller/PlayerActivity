@@ -11,8 +11,10 @@ import java.util.logging.Level;
 public final class Database {
     private static final String JDBC_PREFIX = "jdbc:mariadb";
     private static final String JDBC_DRIVER = "org.mariadb.jdbc.Driver";
-    private static final String TABLE_NAME = "sessions";
-    private String tableNamePrefixed = null;
+    private static final String SESSIONS_TABLE_NAME = "sessions";
+    private static final String NAMES_TABLE_NAME = "player_names";
+    private String sessionsTableNamePrefixed = null;
+    private String namesTableNamePrefixed = null;
     public Connection connection = null;
     private final RecoveryTimestampRunnable recoveryRunnable;
 
@@ -31,23 +33,22 @@ public final class Database {
 
     public void reload() {
         String tablePrefix = PlayerActivity.config.getString("mariadb.table-prefix");
-        tableNamePrefixed = tablePrefix + TABLE_NAME;
+        sessionsTableNamePrefixed = tablePrefix + SESSIONS_TABLE_NAME;
+        namesTableNamePrefixed = tablePrefix + NAMES_TABLE_NAME;
 
-        List<UUID> onlineUuids = Bukkit.getOnlinePlayers().stream()
-                .map(Player::getUniqueId)
-                .toList();
+        List<Player> onlinePlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
 
         List<Session> removedSessions = new ArrayList<>();
 
-        if (!onlineUuids.isEmpty()) {
-            PlayerActivity.serverLog(Level.WARNING, "Performing a plugin reload while players online is not recommended!");
+        if (!onlinePlayers.isEmpty()) {
+            PlayerActivity.serverLog(Level.WARNING, "Performing a plugin reload with players online is not recommended!");
             if (connection == null) {
                 PlayerActivity.serverLog(Level.WARNING, "Reopening new sessions for all online players!");
             } else {
                 PlayerActivity.serverLog(Level.WARNING, "Closing last sessions for online players and opening new ones.");
                 Date currentDate = new Date();
-                for (UUID uuid : onlineUuids) {
-                    List<Session> sessions = getOpenSessions(uuid);
+                for (Player player : onlinePlayers) {
+                    List<Session> sessions = getOpenSessions(player.getUniqueId());
                     Optional<Session> closestSession = sessions.stream()
                             .min(Comparator.comparing(session -> Math.abs(session.startDate.getTime() - currentDate.getTime())));
 
@@ -64,7 +65,7 @@ public final class Database {
 
         closeConnection(connection);
         connection = openConnection();
-        createTable();
+        createTables();
 
         List<Session> openSessions = getAllOpenSessions().stream()
                 .filter(session -> !removedSessions.contains(session))
@@ -78,9 +79,7 @@ public final class Database {
             }
         }
 
-        for (UUID uuid : onlineUuids) {
-            createSession(uuid);
-        }
+        onlinePlayers.forEach(this::createSession);
     }
 
     private Connection openConnection() {
@@ -131,85 +130,93 @@ public final class Database {
         }
     }
 
-    private void createTable() {
-        String statementStr = "CREATE TABLE IF NOT EXISTS " + tableNamePrefixed + " ("
+    private void createTables() {
+        String namesStatementStr = "CREATE TABLE IF NOT EXISTS " + namesTableNamePrefixed + " ("
                 + "id INT AUTO_INCREMENT PRIMARY KEY, "
-                + "uuid UUID NOT NULL, "
-                + "start_stamp DATETIME NOT NULL, "
-                + "end_stamp DATETIME, "
-                + "play_time INT"
+                + "uuid UUID UNIQUE NOT NULL, "
+                + "name VARCHAR(20) NOT NULL"
                 + ");";
-        PreparedStatement statement;
+        String sessionsStatementStr = "CREATE TABLE IF NOT EXISTS " + sessionsTableNamePrefixed + " ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "player_uuid UUID NOT NULL , "
+                + "start_time DATETIME NOT NULL, "
+                + "end_time DATETIME, "
+                + "play_time INT, "
+                + "CONSTRAINT fk_player_uuid "
+                + "FOREIGN KEY (player_uuid) REFERENCES " + namesTableNamePrefixed + " (uuid)"
+                + ");";
+
+        PreparedStatement namesStatement;
+        PreparedStatement sessionsStatement;
         try {
-            statement = connection.prepareStatement(statementStr);
-            statement.execute();
-            statement.close();
+            namesStatement = connection.prepareStatement(namesStatementStr);
+            namesStatement.execute();
+            namesStatement.close();
+
+            sessionsStatement = connection.prepareStatement(sessionsStatementStr);
+            sessionsStatement.execute();
+            sessionsStatement.close();
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't create table!", e);
         }
     }
 
-    public void createSession(UUID uuid) {
-        List<Session> currentSessions = getOpenSessions(uuid);
+    public void createSession(UUID playerUuid, String playerName) {
+        List<Session> currentSessions = getOpenSessions(playerUuid);
         if (!currentSessions.isEmpty()) {
-            Player player = Bukkit.getPlayer(uuid);
-            String name = "<unknown name>";
-            if (player != null) name = player.getName();
-
-            PlayerActivity.serverLog(Level.SEVERE, "Player " + name
-                    + " (" + uuid + ") had " + currentSessions.size()
+            PlayerActivity.serverLog(Level.SEVERE, "Player " + playerName
+                    + " (" + playerUuid + ") had " + currentSessions.size()
                     + " open sessions while trying to create a new session! Did the plugin crash recently?");
             closeSessions(currentSessions);
         }
-        Session session = new Session(uuid);
-        String statementStr = "INSERT INTO " + tableNamePrefixed
-                + "(uuid, start_stamp) VALUES(?, ?);";
+        Session session = new Session(playerUuid);
+        String statementStr = "INSERT INTO " + sessionsTableNamePrefixed
+                + "(player_uuid, start_time) VALUES(?, ?);";
 
         PreparedStatement statement;
         try {
             statement = connection.prepareStatement(statementStr);
-            statement.setString(1, uuid.toString());
+            statement.setString(1, playerUuid.toString());
             statement.setTimestamp(2, new Timestamp(session.startDate.getTime()));
 
             statement.execute();
             statement.close();
             if (PlayerActivity.config.getBoolean("logging.log-sessions")) {
-                Player player = Bukkit.getPlayer(uuid);
-                String name = "<unknown name>";
-                if (player != null) {
-                    name = player.getName();
-                }
-                PlayerActivity.serverLog(Level.INFO, "Created session for player " + name
-                        + " (" + uuid + ")");
+                PlayerActivity.serverLog(Level.INFO, "Created session for player " + playerName
+                        + " (" + playerUuid + ")");
             }
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't create session!", e);
         }
     }
 
+    public void createSession(Player player) {
+        createSession(player.getUniqueId(), player.getName());
+    }
+
     public void closeSession(Session session, Date endDate) {
         session.close(endDate);
-        String statementStr = "UPDATE " + tableNamePrefixed + " SET "
-                + "end_stamp = ?, play_time = ?"
-                + " WHERE uuid = ? AND start_stamp = ?;";
+        String statementStr = "UPDATE " + sessionsTableNamePrefixed + " SET "
+                + "end_time = ?, play_time = ?"
+                + " WHERE player_uuid = ? AND start_time = ?;";
 
         try {
             PreparedStatement statement = connection.prepareStatement(statementStr);
             statement.setTimestamp(1, new Timestamp(session.endDate.getTime()));
             statement.setInt(2, session.playTime);
-            statement.setString(3, session.uuid.toString());
+            statement.setString(3, session.playerUuid.toString());
             statement.setTimestamp(4, new Timestamp(session.startDate.getTime()));
 
             statement.execute();
             statement.close();
             if (PlayerActivity.config.getBoolean("logging.log-sessions")) {
-                Player player = Bukkit.getPlayer(session.uuid);
+                Player player = Bukkit.getPlayer(session.playerUuid);
                 String name = "<unknown name>";
                 if (player != null) {
                     name = player.getName();
                 }
                 PlayerActivity.serverLog(Level.INFO, "Closed session for player " + name
-                        + " (" + session.uuid + ") after " + Session.translatePlayTime(session.playTime));
+                        + " (" + session.playerUuid + ") after " + Session.translatePlayTime(session.playTime));
             }
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't close session!", e);
@@ -227,16 +234,16 @@ public final class Database {
         }
     }
 
-    public List<Session> getOpenSessions(UUID uuid) {
-        String statementStr = "SELECT * FROM " + tableNamePrefixed
-                + " WHERE uuid = ? AND end_stamp IS NULL;";
+    public List<Session> getOpenSessions(UUID playerUuid) {
+        String statementStr = "SELECT * FROM " + sessionsTableNamePrefixed
+                + " WHERE player_uuid = ? AND end_time IS NULL;";
 
         PreparedStatement statement;
         try {
             statement = connection.prepareStatement(statementStr);
-            statement.setString(1, uuid.toString());
+            statement.setString(1, playerUuid.toString());
         } catch (SQLException e) {
-            PlayerActivity.serverLog("Couldn't prepare get-sessions statement for uuid \"" + uuid.toString() + "\"", e);
+            PlayerActivity.serverLog("Couldn't prepare get-sessions statement for uuid \"" + playerUuid.toString() + "\"", e);
             return Collections.emptyList();
         }
         return getOpenSessions(statement);
@@ -260,8 +267,8 @@ public final class Database {
     }
 
     public List<Session> getAllOpenSessions() {
-        String statementStr = "SELECT * FROM " + tableNamePrefixed
-                + " WHERE end_stamp IS NULL;";
+        String statementStr = "SELECT * FROM " + sessionsTableNamePrefixed
+                + " WHERE end_time IS NULL;";
 
         PreparedStatement statement;
         try {
@@ -271,6 +278,52 @@ public final class Database {
             return Collections.emptyList();
         }
         return getOpenSessions(statement);
+    }
+
+    public void updateName(Player player) {
+        if (createName(player)) return;
+        String name = player.getName();
+        UUID uuid = player.getUniqueId();
+        String statementStr = "UPDATE " + namesTableNamePrefixed + " SET "
+                + "name = ? WHERE uuid = ?;";
+        PreparedStatement statement;
+        try {
+            statement = connection.prepareStatement(statementStr);
+            statement.setString(1, name);
+            statement.setString(2, uuid.toString());
+            statement.execute();
+        } catch (SQLException e) {
+            PlayerActivity.serverLog("Couldn't update name for player " + name + " (" + uuid + ")!", e);
+        }
+    }
+
+    private boolean createName(Player player) {
+        String name = player.getName();
+        UUID uuid = player.getUniqueId();
+        String statementStr = "SELECT * FROM " + namesTableNamePrefixed
+                + " WHERE uuid = ?;";
+
+        PreparedStatement statement;
+        try {
+            statement = connection.prepareStatement(statementStr);
+            statement.setString(1, uuid.toString());
+            ResultSet result = statement.executeQuery();
+            if (!result.next()) {
+                System.out.println("we");
+                String createNameStatementStr = "INSERT INTO " + namesTableNamePrefixed
+                        + " (uuid, name) VALUES(?, ?);";
+                PreparedStatement createNameStatement = connection.prepareStatement(createNameStatementStr);
+                createNameStatement.setString(1, uuid.toString());
+                createNameStatement.setString(2, name);
+                createNameStatement.execute();
+                createNameStatement.close();
+                return true;
+            }
+            return false;
+        } catch (SQLException e) {
+            PlayerActivity.serverLog("Couldn't create name record for player " + name + " (" + uuid + ")!", e);
+            return true;
+        }
     }
 
     public void closeAllSessions() {

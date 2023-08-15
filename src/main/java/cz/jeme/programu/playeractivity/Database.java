@@ -300,7 +300,7 @@ public final class Database {
     private boolean createName(Player player) {
         String name = player.getName();
         UUID uuid = player.getUniqueId();
-        String statementStr = "SELECT * FROM " + namesTableNamePrefixed
+        String statementStr = "SELECT 1 FROM " + namesTableNamePrefixed
                 + " WHERE uuid = ?;";
 
         PreparedStatement statement;
@@ -309,7 +309,6 @@ public final class Database {
             statement.setString(1, uuid.toString());
             ResultSet result = statement.executeQuery();
             if (!result.next()) {
-                System.out.println("we");
                 String createNameStatementStr = "INSERT INTO " + namesTableNamePrefixed
                         + " (uuid, name) VALUES(?, ?);";
                 PreparedStatement createNameStatement = connection.prepareStatement(createNameStatementStr);

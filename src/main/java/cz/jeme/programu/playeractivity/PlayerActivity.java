@@ -56,7 +56,6 @@ public class PlayerActivity extends JavaPlugin {
     public void onDisable() {
         if (!configured) return;
         database.closeAllSessions();
-        database.closeConnection(database.connection);
         recoveryRunnable.cancel();
     }
 

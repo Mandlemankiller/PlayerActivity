@@ -15,7 +15,6 @@ public final class Database {
     private static final String NAMES_TABLE_NAME = "player_names";
     private String sessionsTableNamePrefixed = null;
     private String namesTableNamePrefixed = null;
-    public Connection connection = null;
     private final RecoveryTimestampRunnable recoveryRunnable;
 
     static {
@@ -42,29 +41,23 @@ public final class Database {
 
         if (!onlinePlayers.isEmpty()) {
             PlayerActivity.serverLog(Level.WARNING, "Performing a plugin reload with players online is not recommended!");
-            if (connection == null) {
-                PlayerActivity.serverLog(Level.WARNING, "Reopening new sessions for all online players!");
-            } else {
-                PlayerActivity.serverLog(Level.WARNING, "Closing last sessions for online players and opening new ones.");
-                Date currentDate = new Date();
-                for (Player player : onlinePlayers) {
-                    List<Session> sessions = getOpenSessions(player.getUniqueId());
-                    Optional<Session> closestSession = sessions.stream()
-                            .min(Comparator.comparing(session -> Math.abs(session.startDate.getTime() - currentDate.getTime())));
+            PlayerActivity.serverLog(Level.WARNING, "Closing last sessions for online players and opening new ones.");
+            Date currentDate = new Date();
+            for (Player player : onlinePlayers) {
+                List<Session> sessions = getOpenSessions(player.getUniqueId());
+                Optional<Session> closestSession = sessions.stream()
+                        .min(Comparator.comparing(session -> Math.abs(session.startDate.getTime() - currentDate.getTime())));
 
-                    if (closestSession.isPresent()) {
-                        Session session = closestSession.get();
-                        removedSessions.add(session);
-                        closeSession(session);
-                    } else {
-                        PlayerActivity.serverLog(Level.SEVERE, "Player had no sessions open, but he was online when reloading the plugin!");
-                    }
+                if (closestSession.isPresent()) {
+                    Session session = closestSession.get();
+                    removedSessions.add(session);
+                    closeSession(session);
+                } else {
+                    PlayerActivity.serverLog(Level.SEVERE, "Player had no sessions open, but he was online when reloading the plugin!");
                 }
             }
         }
 
-        closeConnection(connection);
-        connection = openConnection();
         createTables(tablePrefix);
 
         List<Session> openSessions = getAllOpenSessions().stream()
@@ -82,7 +75,7 @@ public final class Database {
         onlinePlayers.forEach(this::createSession);
     }
 
-    private Connection openConnection() {
+    private Connection openConnection() throws SQLException {
         String server = PlayerActivity.config.getString("mariadb.server");
         String port = PlayerActivity.config.getString("mariadb.port");
         String databaseName = PlayerActivity.config.getString("mariadb.database-name");
@@ -99,7 +92,7 @@ public final class Database {
             jdbcVersion = "(" + meta.getJDBCMajorVersion() + "." + meta.getJDBCMinorVersion() + ")";
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't open connection with database!", e);
-            return null;
+            throw e;
         }
 
         if (PlayerActivity.config.getBoolean("logging.log-connection")) {
@@ -117,7 +110,7 @@ public final class Database {
         return conn;
     }
 
-    public void closeConnection(Connection conn) {
+    private void closeConnection(Connection conn) {
         if (conn == null) return;
         try {
             conn.close();
@@ -145,10 +138,12 @@ public final class Database {
                 + "CONSTRAINT fk_" + tablePrefix + "player_uuid "
                 + "FOREIGN KEY (player_uuid) REFERENCES " + namesTableNamePrefixed + " (uuid)"
                 + ");";
-
         PreparedStatement namesStatement;
         PreparedStatement sessionsStatement;
+        Connection connection = null;
         try {
+            connection = openConnection();
+
             namesStatement = connection.prepareStatement(namesStatementStr);
             namesStatement.execute();
             namesStatement.close();
@@ -158,6 +153,8 @@ public final class Database {
             sessionsStatement.close();
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't create table!", e);
+        } finally {
+            closeConnection(connection);
         }
     }
 
@@ -174,7 +171,10 @@ public final class Database {
                 + "(player_uuid, start_time) VALUES(?, ?);";
 
         PreparedStatement statement;
+        Connection connection = null;
         try {
+            connection = openConnection();
+
             statement = connection.prepareStatement(statementStr);
             statement.setString(1, playerUuid.toString());
             statement.setTimestamp(2, new Timestamp(session.startDate.getTime()));
@@ -187,6 +187,8 @@ public final class Database {
             }
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't create session!", e);
+        } finally {
+            closeConnection(connection);
         }
     }
 
@@ -199,8 +201,10 @@ public final class Database {
         String statementStr = "UPDATE " + sessionsTableNamePrefixed + " SET "
                 + "end_time = ?, play_time = ?"
                 + " WHERE player_uuid = ? AND start_time = ?;";
-
+        Connection connection = null;
         try {
+            connection = openConnection();
+
             PreparedStatement statement = connection.prepareStatement(statementStr);
             statement.setTimestamp(1, new Timestamp(session.endDate.getTime()));
             statement.setInt(2, session.playTime);
@@ -220,8 +224,9 @@ public final class Database {
             }
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't close session!", e);
+        } finally {
+            closeConnection(connection);
         }
-
     }
 
     public void closeSession(Session session) {
@@ -239,17 +244,20 @@ public final class Database {
                 + " WHERE player_uuid = ? AND end_time IS NULL;";
 
         PreparedStatement statement;
+        Connection connection = null;
         try {
+            connection = openConnection();
             statement = connection.prepareStatement(statementStr);
             statement.setString(1, playerUuid.toString());
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't prepare get-sessions statement for uuid \"" + playerUuid.toString() + "\"", e);
+            closeConnection(connection);
             return Collections.emptyList();
         }
-        return getOpenSessions(statement);
+        return getOpenSessions(statement, connection);
     }
 
-    private List<Session> getOpenSessions(PreparedStatement statement) {
+    private List<Session> getOpenSessions(PreparedStatement statement, Connection connection) {
         List<Session> sessions = new ArrayList<>();
         try {
             ResultSet result = statement.executeQuery();
@@ -262,6 +270,8 @@ public final class Database {
             statement.close();
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't get open sessions!", e);
+        } finally {
+            closeConnection(connection);
         }
         return sessions;
     }
@@ -271,43 +281,54 @@ public final class Database {
                 + " WHERE end_time IS NULL;";
 
         PreparedStatement statement;
+        Connection connection = null;
         try {
+            connection = openConnection();
             statement = connection.prepareStatement(statementStr);
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't prepare get-all-sessions statement!", e);
+            closeConnection(connection);
             return Collections.emptyList();
         }
-        return getOpenSessions(statement);
+        return getOpenSessions(statement, connection);
     }
 
-    public void updateName(Player player) {
-        if (createName(player)) return;
+    public void updatePlayerName(Player player) {
+        if (createPlayerName(player)) return;
         String name = player.getName();
         UUID uuid = player.getUniqueId();
         String statementStr = "UPDATE " + namesTableNamePrefixed + " SET "
                 + "name = ? WHERE uuid = ?;";
         PreparedStatement statement;
+        Connection connection = null;
         try {
+            connection = openConnection();
             statement = connection.prepareStatement(statementStr);
             statement.setString(1, name);
             statement.setString(2, uuid.toString());
             statement.execute();
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't update name for player " + name + " (" + uuid + ")!", e);
+        } finally {
+            closeConnection(connection);
         }
     }
 
-    private boolean createName(Player player) {
+    private boolean createPlayerName(Player player) {
+        // Return true when the name was created successfully or when it crashes
+        // Returns false when the player already has the name in the database
         String name = player.getName();
         UUID uuid = player.getUniqueId();
         String statementStr = "SELECT 1 FROM " + namesTableNamePrefixed
                 + " WHERE uuid = ?;";
 
-        PreparedStatement statement;
+        PreparedStatement checkStatement;
+        Connection connection = null;
         try {
-            statement = connection.prepareStatement(statementStr);
-            statement.setString(1, uuid.toString());
-            ResultSet result = statement.executeQuery();
+            connection = openConnection();
+            checkStatement = connection.prepareStatement(statementStr);
+            checkStatement.setString(1, uuid.toString());
+            ResultSet result = checkStatement.executeQuery();
             if (!result.next()) {
                 String createNameStatementStr = "INSERT INTO " + namesTableNamePrefixed
                         + " (uuid, name) VALUES(?, ?);";
@@ -322,6 +343,8 @@ public final class Database {
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't create name record for player " + name + " (" + uuid + ")!", e);
             return true;
+        } finally {
+            closeConnection(connection);
         }
     }
 

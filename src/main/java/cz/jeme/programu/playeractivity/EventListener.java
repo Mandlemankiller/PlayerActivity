@@ -1,8 +1,8 @@
 package cz.jeme.programu.playeractivity;
 
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
@@ -16,9 +16,12 @@ public class EventListener implements Listener {
 
     @EventHandler
     private void onPlayerLogin(PlayerLoginEvent event) {
-        Player player = event.getPlayer();
-        database.updateName(player);
-        database.createSession(player);
+        database.updatePlayerName(event.getPlayer());
+    }
+
+    @EventHandler
+    private void onPlayerJoin(PlayerJoinEvent event) {
+        database.createSession(event.getPlayer());
     }
 
     @EventHandler

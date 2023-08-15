@@ -30,7 +30,7 @@ public class PlayerActivity extends JavaPlugin {
         configured = user != null && !user.equals("<user_name>") || databaseName != null && !databaseName.equals("<database_name>");
 
         if (!configured) {
-            serverLog(Level.WARNING, "The plugin config has not yet been set!");
+            serverLog(Level.WARNING, "The plugin has not yet been configured!");
             serverLog(Level.WARNING, "Please configure the plugin and restart your server");
             serverLog(Level.WARNING, "The plugin will now be disabled");
             return;

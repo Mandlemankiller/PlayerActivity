@@ -81,13 +81,13 @@ public final class Database {
         String databaseName = PlayerActivity.config.getString("mariadb.database-name");
         String user = PlayerActivity.config.getString("mariadb.user");
         String password = PlayerActivity.config.getString("mariadb.password");
-        Connection conn;
+        Connection connection;
         DatabaseMetaData meta;
         String driver;
         String jdbcVersion;
         try {
-            conn = DriverManager.getConnection(String.format("%s://%s:%s/%s", JDBC_PREFIX, server, port, databaseName), user, password);
-            meta = conn.getMetaData();
+            connection = DriverManager.getConnection(String.format("%s://%s:%s/%s", JDBC_PREFIX, server, port, databaseName), user, password);
+            meta = connection.getMetaData();
             driver = meta.getDriverName() + " (" + meta.getDriverVersion() + ")";
             jdbcVersion = "(" + meta.getJDBCMajorVersion() + "." + meta.getJDBCMinorVersion() + ")";
         } catch (SQLException e) {
@@ -104,13 +104,13 @@ public final class Database {
         if (PlayerActivity.config.getBoolean("logging.log-jdbc")) {
             PlayerActivity.serverLog(Level.INFO, "Using JDBC " + jdbcVersion);
         }
-        return conn;
+        return connection;
     }
 
-    private void closeConnection(Connection conn) {
-        if (conn == null) return;
+    private void closeConnection(Connection connection) {
+        if (connection == null) return;
         try {
-            conn.close();
+            connection.close();
         } catch (SQLException e) {
             PlayerActivity.serverLog("Couldn't close connection with database!", e);
             return;

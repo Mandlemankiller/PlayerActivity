@@ -96,10 +96,7 @@ public final class Database {
         }
 
         if (PlayerActivity.config.getBoolean("logging.log-connection")) {
-            PlayerActivity.serverLog(Level.INFO, "Opened connection with database");
-        }
-        if (PlayerActivity.config.getBoolean("logging.log-login")) {
-            PlayerActivity.serverLog(Level.INFO, "Logged in as " + user + "@" + server + ":" + port);
+            PlayerActivity.serverLog(Level.INFO, "Opened connection with database (" + user + "@" + server + ":" + port + ")");
         }
         if (PlayerActivity.config.getBoolean("logging.log-driver")) {
             PlayerActivity.serverLog(Level.INFO, "Using " + driver);
